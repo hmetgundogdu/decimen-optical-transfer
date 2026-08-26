@@ -124,6 +124,7 @@ const STATS_WINDOW_MS = 2000;
 
 let stream: MediaStream | null = null;
 let decoder: LTDecoder | null = null;
+let receivedContainer: Uint8Array | null = null;
 let streamKey = "";
 let reportSessionId = 0; // pairs this run with the sender's diagnostics post
 let startTs = 0;
@@ -924,7 +925,16 @@ function onDecoded(bytes: Uint8Array, box?: SymbolBox, info?: SymbolInfo) {
   // just the session id — see the note on it in protocol.ts.
   const identity = streamIdentity(header);
   if (!decoder || streamKey !== identity) {
-    decoder = new LTDecoder(header.k, header.blockLen, header.sessionId, header.totalLen);
+    receivedContainer = new Uint8Array(header.totalLen);
+    decoder = new LTDecoder(
+      header.k,
+      header.blockLen,
+      header.sessionId,
+      header.totalLen,
+      (index, bytes) => {
+        receivedContainer?.set(bytes, index * header.blockLen);
+      },
+    );
     streamKey = identity;
     reportSessionId = header.sessionId;
     startTs = performance.now();
@@ -937,7 +947,7 @@ function onDecoded(bytes: Uint8Array, box?: SymbolBox, info?: SymbolInfo) {
   updateProgressEstimate();
 
   if (decoder.isComplete) {
-    const payload = decoder.assemble()!;
+    const payload = receivedContainer ?? decoder.assemble()!;
     const seconds = (performance.now() - startTs) / 1000;
     const ok = fnv1a(payload) === header.payloadFnv;
     void finish(payload, ok, seconds);
